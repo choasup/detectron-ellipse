@@ -376,7 +376,7 @@ def add_fpn_retinanet_losses(model):
             ],
             'retnet_loss_cos_' + suffix,
             beta=cfg.RETINANET.BBOX_REG_BETA,
-            scale=1. / cfg.NUM_GPUS * cfg.RETINANET.BBOX_REG_WEIGHT * 0.1
+            scale=1. / cfg.NUM_GPUS * cfg.RETINANET.BBOX_REG_WEIGHT * 0.5
         )
         gradients.append(cos_loss)
         losses.append('retnet_loss_cos_' + suffix)

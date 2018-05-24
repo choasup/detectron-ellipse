@@ -127,13 +127,14 @@ def add_retinanet_blobs(blobs, im_scales, roidb, image_width, image_height):
         #--------------------- segms --------------------       
         rects = []
         coss = []
-	
+	rois = []
+
         for seg_index in range(len(entry['segms'])):
                 seg = entry['segms'][seg_index]
                 seg = [y for s in seg for y in s]
                 #print(seg)
                 try:
-                        seg = np.array(seg, dtype=np.float32) * scale # scale
+                        seg = np.array(seg, dtype=np.float32) * scale
                         cnt = np.reshape(seg, (-1, 1, 2))
                         rect = cv2.minAreaRect(cnt)
                 except:
@@ -142,19 +143,17 @@ def add_retinanet_blobs(blobs, im_scales, roidb, image_width, image_height):
                         x = entry['boxes'][seg_index][0] + 0.5 * w
                         y = entry['boxes'][seg_index][1] + 0.5 * h
                         rect = ((x * scale, y * scale), (w * scale, h * scale), 0.0)
-			
+
                 # ---------- restrict theta ---------------------       
                 #if (rect[1][0] == rect[1][1]):   # a = b
                 #       rect = ((rect[0][0], rect[0][1]), (rect[1][0], rect[1][1]), 0.0)        
                 #if (rect < -45):
                 #       rect = ((rect[0][0], rect[0][1]), (rect[1][1], rect[1][0]), rect[2] + 90.0)
 
-                # --------- restrict a > b & theta -------------
-                #if (rect[1][0] == rect[1][1]):
-                #        rect = ((rect[0][0], rect[0][1]), (rect[1][0], rect[1][1]), 0.0)
-                if (rect[0][1] < rect[1][1]):
+                # --------- restrict a > b & theta-------------------
+                if (rect[1][0] < rect[1][1]):
                         rect = ((rect[0][0], rect[0][1]), (rect[1][1], rect[1][0]), rect[2] + 90.0)
-                
+
                 # -------------- vis rect -----------------------
                 #w = entry['boxes'][seg_index][2] - entry['boxes'][seg_index][0] + 1
                 #h = entry['boxes'][seg_index][3] - entry['boxes'][seg_index][1] + 1
@@ -170,12 +169,34 @@ def add_retinanet_blobs(blobs, im_scales, roidb, image_width, image_height):
                 #       rect = ((rect[0][0], rect[0][1]), (rect[1][1], rect[1][0]), rect[2] - 90.0)
 
                 # -----------------------#
-		piT = rect[2] / 180.0 * math.pi
-		NW = rect[1][0] * abs(math.cos(piT)) + rect[1][1] * abs(math.sin(piT))
-		NH = rect[1][0] * abs(math.sin(piT)) + rect[1][1] * abs(math.cos(piT))
-		
-                rects.append([rect[0][0], rect[0][1], NW, NH]) # x, y, a, b
-			
+                #print("rect", rect)    
+		x1 = rect[0][0]
+                y1 = rect[0][1]
+                a = rect[1][0]
+                b = rect[1][1]
+                theta = rect[2]
+
+                theta_pi = theta * np.pi / 180
+                T = np.array([[np.cos(theta_pi), -np.sin(theta_pi)], [np.sin(theta_pi), np.cos(theta_pi)]])
+                C = np.array([[4.0 / (a * a), 0],[0, 4.0 / (b * b)]])
+                M = np.dot(np.dot(np.transpose(T), C), T)
+                dy = np.sqrt(4 * M[0][0] / (4 * M[0][0] * M[1][1] - (M[0][1] + M[1][0]) ** 2))
+                dx = np.sqrt(4 * M[1][1] / (4 * M[0][0] * M[1][1] - (M[0][1] + M[1][0]) ** 2))
+
+                x_min = x1 - dx
+                x_max = x1 + dx
+                y_min = y1 - dy
+                y_max = y1 + dy
+
+                #bbox_fit = [max(x_min, 0), max(y_min, 0), x_max - x_min, y_max - y_min]
+
+                #print(x_min, x_max, y_min, y_max)
+
+                rois.append([x_min, y_min, x_max, y_max])
+                rects.append([(x_min + x_max) / 2.0, (y_min + y_max) / 2.0, x_max - x_min, y_max - y_min])
+		#rois.append([rect[0][0] - rect[1][0] / 2.0, rect[0][1] - rect[1][1] / 2.0, rect[0][0] + rect[1][0] / 2.0, rect[0][1] + rect[1][1] / 2.0])
+                #rects.append([rect[0][0], rect[0][1], rect[1][0], rect[1][1]]) # x, y, a, b
+
                 cos = []
                 theta_segs = 4
                 for i in range(theta_segs):
@@ -185,12 +206,14 @@ def add_retinanet_blobs(blobs, im_scales, roidb, image_width, image_height):
 	# -------------------- gt rects -------------
 	gt_rects = np.array(rects)[gt_inds, :]  # [[x, y, a, b]]
         gt_cos = np.array(coss)[gt_inds, :]     # [[cos(t- i *10), .., ]]
-	
-        gt_rois = entry['boxes'][gt_inds, :] * scale
+	gt_rois = np.array(rois, dtype=np.float32)[gt_inds, :]
+
+        #gt_rois = entry['boxes'][gt_inds, :] * scale
         gt_classes = entry['gt_classes'][gt_inds]
-	
+
         im_info = np.array([[im_height, im_width, scale]], dtype=np.float32)
         blobs['im_info'].append(im_info)
+	
 	# ------------------ edit func -----------------------------
         retinanet_blobs, fg_num, bg_num = _get_retinanet_blobs(
             foas, all_anchors, gt_rois, gt_classes, gt_rects, gt_cos, image_width, image_height)
@@ -357,6 +380,7 @@ def _get_retinanet_blobs(
     cos_targets[fg_inds, :] = gt_cos[anchor_to_gt_argmax[fg_inds], :]
     cos_targets = data_utils.unmap(cos_targets, total_anchors, inds_inside, fill=0)
 
+
     # Map up to original set of anchors
     labels = data_utils.unmap(labels, total_anchors, inds_inside, fill=-1)
     bbox_targets = data_utils.unmap(bbox_targets, total_anchors, inds_inside, fill=0)
@@ -383,6 +407,8 @@ def _get_retinanet_blobs(
         
 	#----------- cos output with shape ----------
         _cos_targets = _cos_targets.reshape((1, H, W, num_cos)).transpose(0, 3, 1, 2)
+
+
 
 	stride = foa.stride
         w = int(im_width / stride)

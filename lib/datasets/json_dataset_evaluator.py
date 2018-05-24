@@ -188,13 +188,16 @@ def _coco_bbox_results_one_category(json_dataset, boxes, cat_id):
 	for k in range(dets.shape[0]):
 	    cx = xs[k] + ws[k] / 2.0
 	    cy = ys[k] + hs[k] / 2.0
-	    NW = ws[k]
-	    NH = hs[k]	
-	    theta = angles[k]
-	    piT = theta / 180.0 * math.pi	
-            
-	    a = (NW * abs(math.cos(piT)) - NH * abs(math.sin(piT))) / (math.cos(piT)**2 - math.sin(piT)**2)
-	    b = (NW * abs(math.sin(piT)) - NH * abs(math.cos(piT))) / (math.sin(piT)**2 - math.cos(piT)**2)
+	    w = ws[k]
+	    h = hs[k]
+	    theta = angles[k]	    
+
+            theta = angles[k]
+            theta_pi = theta * np.pi / 180
+
+            b = 2 * np.sqrt((h * h / 4 * (np.cos(theta_pi) ** 2) - w * w / 4 * (np.sin(theta_pi)) ** 2) / (np.cos(theta_pi) ** 4 - np.sin(theta_pi) ** 4))
+            a = 2 * np.sqrt((h * h / 4 * (np.sin(theta_pi) ** 2) - w * w / 4 * (np.cos(theta_pi)) ** 2) / (np.sin(theta_pi) ** 4 - np.cos(theta_pi) ** 4))
+
 
             rp1_x = cx + a / 2.0 * math.cos(theta / 180.0 * math.pi)
             rp1_y = cy + a / 2.0 * math.sin(theta / 180.0 * math.pi)
@@ -208,26 +211,25 @@ def _coco_bbox_results_one_category(json_dataset, boxes, cat_id):
             rp4_x = cx - b / 2.0 * math.sin(-theta / 180.0 * math.pi)
             rp4_y = cy - b / 2.0 * math.cos(-theta / 180.0 * math.pi)
 	
-	    x_min = max(min(min(rp1_x, rp2_x), min(rp3_x, rp4_x)), 0)
-            x_max = max(max(rp1_x, rp2_x), max(rp3_x, rp4_x))
-            y_min = max(min(min(rp1_y, rp2_y), min(rp3_y, rp4_y)), 0)
-            y_max = max(max(rp1_y, rp2_y), max(rp3_y, rp4_y))
+	    #x_min = max(min(min(rp1_x, rp2_x), min(rp3_x, rp4_x)), 0)
+            #x_max = max(max(rp1_x, rp2_x), max(rp3_x, rp4_x))
+            #y_min = max(min(min(rp1_y, rp2_y), min(rp3_y, rp4_y)), 0)
+            #y_max = max(max(rp1_y, rp2_y), max(rp3_y, rp4_y))
 			
-	    p2_x, p2_y = max(rp1_x - (cx - rp4_x), 0), max(rp1_y - (cy - rp4_y), 0)
-            p1_x, p1_y = max(rp1_x - (cx - rp3_x), 0), max(rp1_y - (cy - rp3_y), 0)
+	    p2_x, p2_y = rp1_x - (cx - rp4_x), rp1_y - (cy - rp4_y)
+            p1_x, p1_y = rp1_x - (cx - rp3_x), rp1_y - (cy - rp3_y)
             
-            p3_x, p3_y = max(rp2_x - (cx - rp4_x), 0), max(rp2_y - (cy - rp4_y), 0)
-            p4_x, p4_y = max(rp2_x - (cx - rp3_x), 0), max(rp2_y - (cy - rp3_y), 0)
+            p3_x, p3_y = rp2_x - (cx - rp4_x), rp2_y - (cy - rp4_y)
+            p4_x, p4_y = rp2_x - (cx - rp3_x), rp2_y - (cy - rp3_y)
                 
-	    results.extend(
-       	        [{'image_id': image_id,
+	    results.append(
+       	        {'image_id': image_id,
                   'category_id': cat_id,
                   'rect': [cx, cy, a, b], # center, a, b
-                  'bbox': [x_min, y_min, x_max - x_min, y_max - y_min], #bbox small
-		  'segmentation_e': [[rp1_x, rp1_y, rp3_x, rp3_y, rp2_x, rp2_y, rp4_x, rp4_y, rp1_x, rp1_y]],
+                  'bbox': [xs[k], ys[k], w, h], #bbox fit
 		  'segmentation': [[p1_x, p1_y, p2_x, p2_y, p3_x, p3_y, p4_x, p4_y, p1_x, p1_y]], #rect fit
                   'score': scores[k],
-                  'angle': angles[k]}])
+                  'angle': angles[k]})
 	
 	# ------------ ori ---------------	
         #results.extend(
